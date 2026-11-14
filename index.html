@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>鳥鳥傳信</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 舞台固定 1920x1080，由 main.js 等比縮放到視窗大小 -->
+  <div id="stage">
+    <div id="rest-zone"></div>
+    <div id="inbox-zone"></div>
+
+    <div id="seed-layer"></div>
+    <div id="egg-layer"></div>
+    <div id="letter-layer"></div>
+    <div id="bird-layer"></div>
+
+    <!-- 四個工具（目前為佔位圖，之後換正式美術） -->
+    <button id="tool-mailbox" class="tool" title="寫信、查看寄出的信">郵箱<span id="mail-badge" hidden></span></button>
+    <button id="tool-feed" class="tool" title="撒飼料，吸引送信鳥">飼料</button>
+    <button id="tool-broom" class="tool" title="掃除所有信件">掃帚</button>
+    <button id="tool-store" class="tool" title="存信箱">存信箱<span id="store-count">0 / 100</span></button>
+
+    <!-- 遮罩：拆信閱讀視窗、存信箱面板 -->
+    <div id="overlay" hidden>
+      <div id="reader" hidden>
+        <div id="reader-paper" class="paper">
+          <h2 id="reader-title"></h2>
+          <div id="reader-meta"></div>
+          <p id="reader-content"></p>
+          <div id="reader-attach"></div>
+          <div id="reader-acts"></div>
+        </div>
+
+        <!-- 信件剩餘壽命（地上的信才有） -->
+        <div id="reader-life"><div id="life-bar"><i></i></div><span id="life-text"></span></div>
+
+        <!-- 按讚／回信：署名後交給休息區的鳥 -->
+        <div id="respond" hidden>
+          <textarea id="r-text" rows="3" maxlength="200" placeholder="寫下你的回信（最多 200 字）"></textarea>
+          <div class="sign-row">
+            <span id="r-hint"></span>
+            署名：<input id="r-author" type="text" maxlength="12" placeholder="匿名">
+            <button id="btn-respond-ok" class="btn primary small">署名並交給鳥</button>
+            <button id="btn-respond-cancel" class="btn small">取消</button>
+          </div>
+        </div>
+
+        <div class="actions" id="reader-actions">
+          <button id="btn-like" class="btn like">按讚</button>
+          <button id="btn-reply" class="btn">回信</button>
+          <button id="btn-save" class="btn primary">收進存信箱</button>
+          <button id="btn-discard" class="btn danger">丟掉這封信</button>
+          <button id="btn-close" class="btn">關閉</button>
+        </div>
+      </div>
+
+      <!-- 寫信：先選鳥，再寫信 -->
+      <div id="compose" hidden>
+        <div id="compose-pick">
+          <h2>要請哪一隻鳥送信？</h2>
+          <div class="bird-cards">
+            <button class="bird-card" data-bird="sparrow">
+              <span class="bird-icon sparrow"></span>
+              <b>麻雀</b><i>信封</i>
+              <span>只能送文字</span>
+            </button>
+            <button class="bird-card" data-bird="pigeon">
+              <span class="bird-icon pigeon"></span>
+              <b>鴿子</b><i>明信片</i>
+              <span>文字＋圖片（10MB 以下）</span>
+            </button>
+            <button class="bird-card" data-bird="owl">
+              <span class="bird-icon owl"></span>
+              <b>貓頭鷹</b><i>包裹</i>
+              <span>文字＋任何檔案（100MB 以下）</span>
+            </button>
+          </div>
+          <div class="actions">
+            <button id="btn-compose-cancel" class="btn">取消</button>
+          </div>
+        </div>
+
+        <div id="compose-write" hidden>
+          <div id="compose-paper" class="paper">
+            <input id="c-title" type="text" maxlength="20" placeholder="標題（最多 20 字）">
+            <textarea id="c-content" rows="6" maxlength="500" placeholder="想說些什麼呢……"></textarea>
+            <div id="c-attach-row">
+              <label class="btn small" for="c-file" id="c-file-label">加入圖片</label>
+              <input id="c-file" type="file" hidden>
+              <span id="c-file-info"></span>
+              <button id="c-file-clear" class="btn small" hidden>移除</button>
+            </div>
+            <div id="c-sign">署名：<input id="c-author" type="text" maxlength="12" placeholder="匿名"></div>
+          </div>
+          <div class="actions">
+            <button id="btn-send" class="btn primary">寄出</button>
+            <button id="btn-repick" class="btn">換一隻鳥</button>
+            <button id="btn-compose-close" class="btn">先不寄</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 郵箱選單：寫信，或查看自己寄出的信 -->
+      <div id="mail-menu" class="panel" hidden>
+        <h2>郵箱</h2>
+        <div class="menu-row">
+          <button id="btn-menu-write" class="btn primary big">寫一封信</button>
+          <button id="btn-menu-sent" class="btn big">我寄出的信<span id="menu-unread"></span></button>
+        </div>
+        <div class="actions">
+          <button id="btn-menu-close" class="btn">關閉</button>
+        </div>
+      </div>
+
+      <!-- 我寄出的信：剩餘壽命、收到的讚與回信 -->
+      <div id="sent-panel" class="panel" hidden>
+        <h2>我寄出的信 <small id="sent-count"></small></h2>
+        <div id="sent-list"></div>
+        <div class="actions">
+          <button id="btn-sent-close" class="btn">關閉</button>
+        </div>
+      </div>
+
+      <div id="store-panel" hidden>
+        <h2>存信箱 <small id="store-panel-count"></small></h2>
+        <div id="egg-shelf"></div>
+        <div id="store-grid"></div>
+        <div class="actions">
+          <button id="btn-store-close" class="btn">關閉</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="leaf-layer"></div>
+    <button id="btn-mute" class="btn small" title="開關音效">音效：開</button>
+    <div id="toast"></div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="api.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

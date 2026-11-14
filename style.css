@@ -1,0 +1,633 @@
+/* ===== 鳥鳥傳信：場景樣式 ===== */
+:root {
+  --cream: #f6ecd6;        /* 整體背景 */
+  --rest: #ead8b4;         /* 送信鳥休息區 */
+  --inbox: #fcf5e3;        /* 收信區 */
+  --ink: #5b4630;          /* 文字 */
+  --shadow: rgba(96, 66, 24, .25);
+  /* 介面字體。若安裝了像素中文字型「Cubic 11（俐方體11號）」會優先使用 */
+  --hand: "Cubic 11", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+  --outline: #3b2a1a;      /* 像素外框色 */
+  /* 像素風的階梯狀圓角 */
+  --pixel-corners: polygon(
+    0 24px, 12px 24px, 12px 12px, 24px 12px, 24px 0,
+    calc(100% - 24px) 0, calc(100% - 24px) 12px, calc(100% - 12px) 12px, calc(100% - 12px) 24px, 100% 24px,
+    100% calc(100% - 24px), calc(100% - 12px) calc(100% - 24px), calc(100% - 12px) calc(100% - 12px),
+    calc(100% - 24px) calc(100% - 12px), calc(100% - 24px) 100%,
+    24px 100%, 24px calc(100% - 12px), 12px calc(100% - 12px), 12px calc(100% - 24px), 0 calc(100% - 24px));
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--cream);
+  font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  color: var(--ink);
+}
+
+#stage {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: 0 0;
+  background: var(--cream) url(assets/ground_out.png) 0 0 / 96px 96px;
+  image-rendering: pixelated;
+  user-select: none;
+}
+
+/* ----- 區域（地面是 32x32 的像素材質，放大 3 倍拼貼） ----- */
+#rest-zone {
+  position: absolute;
+  left: 192px; top: 168px;
+  width: 1536px; height: 768px;       /* 剛好是 16 x 8 塊地磚，四邊留給收信區外的寬度都是 84px */
+  background: var(--rest) url(assets/ground_rest.png) 0 0 / 96px 96px;
+  image-rendering: pixelated;
+  clip-path: var(--pixel-corners);
+  box-shadow: inset 0 0 0 6px #d6bd8a;
+}
+
+#inbox-zone {
+  position: absolute;
+  left: 276px; top: 252px;
+  width: 1368px; height: 600px;
+  background: var(--inbox) url(assets/ground_inbox.png) 0 0 / 96px 96px;
+  image-rendering: pixelated;
+  clip-path: var(--pixel-corners);
+  box-shadow: inset 0 0 0 6px #e6d6ae;
+}
+
+#seed-layer, #egg-layer, #letter-layer, #bird-layer, #leaf-layer {
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;
+}
+
+/* ----- 工具按鈕（像素圖 + 文字標籤） -----
+ * 圖放在 ::before，陰影只加在圖上，文字才不會出現重影 */
+.tool {
+  position: absolute;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  font: 700 22px/1.2 var(--hand);
+  color: var(--ink);
+  transition: translate .1s;
+  z-index: 60;
+}
+.tool::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0;
+  width: 100%; height: var(--img-h);
+  background: var(--img) no-repeat 0 0 / 100% 100%;
+  image-rendering: pixelated;
+  filter: drop-shadow(6px 9px 0 rgba(96, 66, 24, .22));
+  z-index: -1;
+}
+.tool:hover  { translate: 0 -6px; }
+.tool:active { translate: 0 3px; }
+.tool.cooling::before { filter: grayscale(.85) opacity(.65); }
+
+/* 郵箱（88x46 像素）：兩側有鳥台；有新回應時換成旗子舉起的圖 */
+#tool-mailbox { left: 828px; top: 0;      width: 264px; height: 164px; --img: url(assets/tool_mailbox.png); --img-h: 138px; }
+#tool-mailbox.has-mail { --img: url(assets/tool_mailbox_up.png); }
+#mail-badge {
+  position: absolute;
+  left: 160px; top: 30px;
+  min-width: 30px;
+  padding: 2px 6px;
+  background: #e3b84f;
+  border: 3px solid var(--outline);
+  color: var(--outline);
+  font-size: 18px;
+}
+#tool-feed    { left: 36px;  top: 477px;  width: 120px; height: 150px; --img: url(assets/tool_feed.png);    --img-h: 120px; }
+#tool-broom   { left: 1764px; top: 477px; width: 120px; height: 150px; --img: url(assets/tool_broom.png);   --img-h: 120px; }
+#tool-store   {
+  left: 858px; top: 942px; width: 204px; height: 132px;
+  --img: url(assets/tool_storebox.png); --img-h: 132px;
+  justify-content: flex-start;
+  padding-top: 14px;
+  color: #fff8ea;
+  text-shadow: 2px 2px 0 var(--outline);
+}
+#store-count  { display: block; font-size: 17px; }
+
+/* ----- 信件（像素圖當底，標題文字由網頁疊上去） ----- */
+.letter {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  position: absolute;
+  cursor: pointer;
+  background: no-repeat 0 0 / 100% 100%;
+  image-rendering: pixelated;
+  font: 700 19px/1.25 var(--hand);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  /* 變老的外觀（泛黃、污漬、缺角）由 main.js 依壽命換圖：assets/letter_*_a1~a3.png */
+  filter: drop-shadow(6px 9px 0 rgba(96, 66, 24, .25));
+  animation: letter-drop .45s ease-out;
+  transition: opacity .5s, translate .5s ease-in;
+}
+.letter:hover { z-index: 5; translate: 0 -3px; }
+.letter.swept { translate: 420px 0; opacity: 0; pointer-events: none; }
+
+@keyframes letter-drop {
+  from { scale: 1.35; opacity: 0; }
+  to   { scale: 1; opacity: 1; }
+}
+
+/* 壽命快到了：信紙被風吹得抖動 */
+.letter.dying { animation: flutter .45s steps(2) infinite alternate; }
+@keyframes flutter { from { translate: -3px 0; } to { translate: 3px -3px; } }
+/* 壽命到了：被風吹走（動畫由 main.js 的 blowAway 播放） */
+.letter.blown { animation: none; transition: none; pointer-events: none; z-index: 40; }
+/* 已署名、等鳥來叼走 */
+.letter.leaving { pointer-events: none; animation: none; }
+.sign-mark {
+  position: absolute;
+  right: -12px; bottom: -12px;
+  padding: 3px 10px;
+  background: #d9604c;
+  border: 3px solid var(--outline);
+  color: #fff8ea;
+  font-size: 16px;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+/* 標題最多顯示幾行，超過的以刪節號收尾 */
+.letter span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+/* 麻雀：信封（54x40 像素），標題寫在封蠟下方 */
+.letter.note     { width: 162px; height: 120px; margin: -60px 0 0 -81px; padding: 62px 30px 6px 30px; background-image: url(assets/letter_note.png); font-size: 17px; }
+.letter.note span { -webkit-line-clamp: 2; }
+.letter.parcel.opened span { -webkit-line-clamp: 2; }
+/* 鴿子：明信片（60x40 像素） */
+.letter.postcard { width: 180px; height: 120px; margin: -60px 0 0 -90px; padding: 16px 56px 16px 18px; background-image: url(assets/letter_postcard.png); }
+/* 貓頭鷹：牛皮紙包裹（60x50 像素），標題寫在左上的標籤上 */
+.letter.parcel   { width: 180px; height: 150px; margin: -75px 0 0 -90px; padding: 14px 56px 74px 14px; background-image: url(assets/letter_parcel.png); font-size: 17px; }
+
+/* ----- 已開過的信件外觀 ----- */
+/* 信封：封蓋掀開、露出信紙（圖比未拆時高 8 像素，往上多出封蓋） */
+.letter.note.opened     { height: 144px; margin-top: -84px; padding-top: 92px; background-image: url(assets/letter_note_open.png); }
+.letter.postcard.opened { background-image: url(assets/letter_postcard_open.png); padding-right: 80px; }  /* 蓋上郵戳 */
+.letter.parcel.opened   { background-image: url(assets/letter_parcel_open.png); padding: 26px 38px 72px 35px; }  /* 包裝拆開、麻繩鬆脫 */
+
+/* 收藏時飛向存信箱 */
+.letter.stored {
+  transition: left .55s ease-in, top .55s ease-in, scale .55s ease-in, opacity .55s ease-in;
+  scale: .15;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ----- 遮罩、拆信閱讀視窗、存信箱面板 ----- */
+[hidden] { display: none !important; }
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(70, 50, 28, .45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in .2s;
+}
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in  { from { scale: .85; opacity: 0; } }
+
+#reader, #store-panel, #compose, .panel { animation: pop-in .25s ease-out; }
+
+.paper {
+  width: 820px;
+  min-height: 480px;
+  max-height: 640px;
+  overflow-x: hidden;            /* 不橫向延伸 */
+  overflow-y: auto;              /* 內容太長就往下捲 */
+  overflow-wrap: anywhere;       /* 沒有空格或換行的長字串也強制折行 */
+  word-break: break-word;
+  background-attachment: local !important;   /* 橫線跟著文字一起捲動 */
+  padding: 56px 70px;
+  font-family: var(--hand);
+  color: var(--ink);
+  box-shadow: 6px 10px 0 rgba(96, 66, 24, .25), 12px 26px 40px rgba(50, 30, 10, .4);
+}
+#reader-title   { margin: 0 0 10px; font-size: 44px; }
+#reader-meta    { font-size: 22px; opacity: .7; margin-bottom: 28px; }
+#reader-content { font-size: 30px; line-height: 46px; margin: 0; white-space: pre-wrap; }
+
+/* 三種紙張版型 */
+.paper.note {
+  padding-left: 110px;
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, transparent 84px, #e9a9a0 84px 86px, transparent 86px),
+    radial-gradient(circle at 42px 90px, #7a6248 13px, transparent 14px),
+    radial-gradient(circle at 42px 50%, #7a6248 13px, transparent 14px),
+    radial-gradient(circle at 42px calc(100% - 90px), #7a6248 13px, transparent 14px),
+    repeating-linear-gradient(#fffdf6 0 45px, #b9d3e6 45px 46px);
+}
+.paper.postcard {
+  background: #fff3d2;
+  border: 18px solid #fffaf0;
+  outline: 1px solid rgba(150, 110, 50, .3);
+  border-radius: 10px;
+}
+.paper.parcel {
+  background: #c9a070;
+  border-radius: 16px;
+  border: 14px solid #b58a5a;
+}
+.paper.parcel > * { background: #fff8ea; padding: 10px 18px; border-radius: 6px; }
+.paper.parcel #reader-meta { opacity: 1; color: #8a7558; }
+
+/* 附件（佔位） */
+#reader-attach:empty { display: none; }
+#reader-attach { margin-top: 30px; font-size: 22px; }
+.attach-image {
+  height: 200px;
+  border-radius: 8px;
+  border: 3px dashed rgba(150, 110, 50, .45);
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(91, 70, 48, .6);
+  background: rgba(255, 255, 255, .4);
+}
+.attach-file {
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  background: #efe2c6;
+  border: 2px solid #b58a5a;
+}
+.attach-file b { font-size: 24px; }
+
+.actions { display: flex; gap: 18px; justify-content: center; margin-top: 26px; }
+.btn {
+  border: none;
+  cursor: pointer;
+  padding: 14px 34px;
+  border-radius: 999px;
+  font: 700 26px var(--hand);
+  color: var(--ink);
+  background: #fff8ea;
+  box-shadow: 0 6px 0 rgba(96, 66, 24, .3);
+  transition: transform .1s, box-shadow .1s;
+}
+.btn:hover  { transform: translateY(-2px); }
+.btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(96, 66, 24, .3); }
+.btn.primary { background: #e3b84f; color: #4a3518; }
+.btn.danger  { background: #d9604c; color: #fff8ea; }
+
+#store-panel {
+  width: 1300px;
+  padding: 36px 44px;
+  border-radius: 40px;
+  background: #b9b09f;
+  box-shadow: inset 0 0 0 10px #a9a08f, 12px 26px 40px rgba(50, 30, 10, .4);
+}
+#store-panel h2 { margin: 0 0 22px; font: 700 40px var(--hand); color: #fff8ea; }
+#store-panel h2 small { font-size: 24px; font-weight: 400; margin-left: 10px; }
+#store-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  align-content: flex-start;
+  height: 480px;
+  overflow-y: auto;
+  padding: 22px;
+  border-radius: 24px;
+  background: #8f8677;
+  box-shadow: inset 0 8px 20px rgba(0, 0, 0, .3);
+}
+#store-grid .empty { margin: auto; font: 28px var(--hand); color: #e9e1d0; }
+/* 存信箱裡的信：沿用信件外觀，但不用絕對定位 */
+#store-grid .letter { position: relative; margin: 0; animation: none; flex: none; }
+
+/* ----- 寫信 ----- */
+#compose h2 { margin: 0 0 30px; text-align: center; font: 700 46px var(--hand); color: #fff8ea; }
+.bird-cards { display: flex; gap: 36px; }
+.bird-card {
+  width: 330px;
+  padding: 30px 24px 34px;
+  border: none;
+  border-radius: 28px;
+  background: #fff8ea;
+  cursor: pointer;
+  font-family: var(--hand);
+  color: var(--ink);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  box-shadow: 0 10px 0 rgba(96, 66, 24, .3), 0 18px 30px rgba(50, 30, 10, .3);
+  transition: transform .12s;
+}
+.bird-card:hover { transform: translateY(-8px) rotate(-1deg); }
+.bird-card b { font-size: 40px; }
+.bird-card i { font-style: normal; font-size: 24px; padding: 2px 16px; border-radius: 999px; background: #ead8b4; }
+.bird-card span { font-size: 22px; opacity: .8; }
+.bird-icon { display: block; background-position: -864px 0; margin: -14px 0 -18px; }
+
+#compose-paper { display: flex; flex-direction: column; gap: 14px; }
+#compose-paper input[type=text], #compose-paper textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--hand);
+  color: var(--ink);
+}
+#compose-paper ::placeholder { color: rgba(91, 70, 48, .4); }
+#c-title   { font-size: 44px; font-weight: 700; border-bottom: 2px dashed rgba(150, 110, 50, .4) !important; padding-bottom: 6px; }
+#c-content { font-size: 30px; line-height: 46px; resize: none; }
+#c-attach-row { display: flex; align-items: center; gap: 14px; font-size: 22px; min-height: 48px; }
+#c-file-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+#c-sign { align-self: flex-end; font-size: 28px; white-space: nowrap; }
+#c-sign input { width: 220px !important; font-size: 28px; border-bottom: 2px solid rgba(91, 70, 48, .5) !important; text-align: center; }
+#compose-paper.parcel > input[type=text], #compose-paper.parcel > textarea { background: #fff8ea; }
+.btn.small { padding: 8px 20px; font-size: 20px; box-shadow: 0 4px 0 rgba(96, 66, 24, .3); background: #efe2c6; }
+
+.attach-photo { display: block; max-width: 100%; max-height: 320px; border-radius: 8px; border: 8px solid #fffaf0; box-shadow: 2px 4px 10px var(--shadow); }
+
+/* ----- 飼料 ----- */
+.seed {
+  position: absolute;
+  width: 6px; height: 6px;
+  margin: -3px 0 0 -3px;
+  background: #b98a3c;
+  box-shadow: 3px 3px 0 rgba(96, 66, 24, .3);
+  transition: opacity .6s;
+}
+
+/* ----- 送信鳥 -----
+ * 每種鳥一張圖集（assets/bird_*.png）：每格 48x48 像素，放大 3 倍顯示。
+ * 橫向 8 格 = 8 個方向（右、右下、下、左下、左、左上、上、右上）
+ * 直向 7 列 = 站立、啄食、飛行1、飛行2、叼信站立、叼信飛行1、叼信飛行2
+ * 要顯示哪一格由 main.js 的 render() 設定 background-position */
+.bird { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.bird-spr, .bird-icon {
+  width: 144px; height: 144px;
+  background-repeat: no-repeat;
+  background-size: 1152px 1008px;
+  image-rendering: pixelated;
+}
+.bird-spr { position: absolute; left: -72px; top: -72px; }
+/* 可以點的範圍只有鳥身附近；飛行中不擋滑鼠 */
+.bird-hit { position: absolute; left: -27px; top: -27px; width: 54px; height: 54px; pointer-events: auto; cursor: pointer; }
+.bird.flying .bird-hit { pointer-events: none; }
+.bird.poked .bird-spr { animation: poke .36s steps(1); }
+@keyframes poke { 0% { translate: 0 -9px; } 33% { translate: 0 -15px; } 66% { translate: 0 -6px; } }
+.sparrow .bird-spr, .bird-icon.sparrow { background-image: url(assets/bird_sparrow.png); }
+.pigeon  .bird-spr, .bird-icon.pigeon  { background-image: url(assets/bird_pigeon.png); }
+.owl     .bird-spr, .bird-icon.owl     { background-image: url(assets/bird_owl.png); }
+.dove    .bird-spr                     { background-image: url(assets/bird_dove.png); }
+
+/* 走路時一跳一跳、下蛋時左右抖 */
+.bird.walking .bird-spr { animation: hop .3s steps(1) infinite; }
+.bird.laying  .bird-spr { animation: shiver .16s steps(1) infinite; }
+@keyframes hop    { 0% { translate: 0 0; } 50% { translate: 0 -3px; } }
+@keyframes shiver { 0% { translate: -3px 0; } 50% { translate: 3px 0; } }
+
+/* ----- 提示訊息 ----- */
+#toast {
+  position: absolute;
+  left: 50%; top: 880px;
+  translate: -50% 0;
+  padding: 14px 30px;
+  border-radius: 999px;
+  background: rgba(91, 70, 48, .92);
+  color: #fff8ea;
+  font: 24px var(--hand);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s;
+  z-index: 100;
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; }
+
+/* ----- 信件壽命、按讚與回信 ----- */
+#reader-life {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  margin-top: 18px;
+  color: #fff8ea;
+  font: 22px var(--hand);
+}
+#life-bar { width: 380px; height: 14px; border-radius: 999px; background: rgba(255, 255, 255, .25); overflow: hidden; }
+#life-bar i { display: block; height: 100%; width: 100%; background: #e3b84f; transition: width .3s linear; }
+#life-bar.low i { background: #d9604c; }
+
+#reader-acts:empty { display: none; }
+#reader-acts {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 2px dashed rgba(150, 110, 50, .4);
+  font-size: 22px;
+  line-height: 34px;
+}
+#reader-acts .act-like { color: #b8473a; }
+#reader-acts .act-reply b { margin-right: 8px; }
+
+#respond {
+  width: 820px;
+  margin-top: 16px;
+  padding: 16px 22px;
+  border-radius: 20px;
+  background: #fff8ea;
+  font: 24px var(--hand);
+  color: var(--ink);
+  animation: pop-in .2s ease-out;
+}
+#respond textarea {
+  width: 100%;
+  border: 2px dashed rgba(150, 110, 50, .4);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: transparent;
+  outline: none;
+  resize: none;
+  font: 26px/36px var(--hand);
+  color: var(--ink);
+}
+.sign-row { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.sign-row #r-hint { flex: 1; font-size: 20px; opacity: .75; white-space: normal; }
+.sign-row input {
+  width: 180px;
+  border: none;
+  border-bottom: 2px solid rgba(91, 70, 48, .5);
+  outline: none;
+  background: transparent;
+  text-align: center;
+  font: 24px var(--hand);
+  color: var(--ink);
+}
+/* 回應時把信紙縮短，讓整個視窗留在畫面內 */
+#reader.responding .paper { max-height: 400px; min-height: 280px; }
+.btn.like { background: #f1c4bb; color: #8a2f25; }
+.btn[disabled] { opacity: .55; cursor: default; transform: none; }
+
+/* ----- 環頸斑鳩的蛋（彩蛋收集品） ----- */
+.egg {
+  position: absolute;
+  width: 36px; height: 42px;
+  margin: -21px 0 0 -18px;
+  background: url(assets/egg_white.png) no-repeat 0 0 / 100% 100%;
+  image-rendering: pixelated;
+  cursor: pointer;
+  filter: drop-shadow(3px 6px 0 rgba(96, 66, 24, .25));
+  animation: letter-drop .4s ease-out;
+  transition: opacity .6s, translate .1s;
+  z-index: 3;
+}
+.egg:hover { translate: 0 -3px; }
+.egg.blue { background-image: url(assets/egg_blue.png); }
+.egg.pink { background-image: url(assets/egg_pink.png); }
+.egg.spot { background-image: url(assets/egg_spot.png); }
+.egg.gold { background-image: url(assets/egg_gold.png); }
+
+#egg-shelf { display: flex; align-items: center; gap: 26px; margin-bottom: 16px; font: 22px var(--hand); color: #fff8ea; }
+.egg-slot { display: flex; align-items: center; gap: 10px; }
+.egg-slot .egg { position: relative; margin: 0; cursor: default; animation: none; flex: none; }
+.egg-slot .egg:hover { translate: 0 0; }
+.egg-slot.none { opacity: .45; }
+.egg-slot.none .egg { filter: grayscale(1) brightness(.6); }
+
+/* ----- 像素風介面：把按鈕、面板、信紙的圓角與柔和陰影改成方角與硬邊 ----- */
+.btn {
+  border: 3px solid var(--outline);
+  border-radius: 0;
+  box-shadow: 0 6px 0 var(--outline);
+}
+.btn:active { box-shadow: 0 0 0 var(--outline); transform: translateY(6px); }
+.btn.small { box-shadow: 0 3px 0 var(--outline); }
+#store-panel, .panel { border-radius: 0; border: 6px solid var(--outline); box-shadow: inset 0 0 0 6px #a9a08f, 12px 15px 0 rgba(59, 42, 26, .45); }
+#store-grid  { border-radius: 0; box-shadow: inset 0 6px 0 rgba(0, 0, 0, .25); }
+#respond     { border-radius: 0; border: 3px solid var(--outline); }
+#respond textarea { border-radius: 0; }
+.bird-card   { border-radius: 0; border: 3px solid var(--outline); box-shadow: 0 9px 0 var(--outline); }
+.bird-card i { border-radius: 0; }
+#toast       { border-radius: 0; border: 3px solid #fff8ea; }
+#life-bar, #life-bar i { border-radius: 0; }
+#life-bar    { height: 12px; border: 3px solid var(--outline); box-sizing: content-box; }
+.attach-image, .attach-file, .attach-photo { border-radius: 0; }
+
+/* ----- 大張信紙（閱讀與寫信）：像素邊框 + 可拼貼的像素紙面 ----- */
+.paper, .paper.note, .paper.postcard, .paper.parcel {
+  border: 15px solid transparent;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  image-rendering: pixelated;
+  background-clip: padding-box;
+  background-origin: padding-box;
+  filter: drop-shadow(9px 12px 0 rgba(59, 42, 26, .45));
+  padding: 40px 54px;
+}
+.paper.note {
+  border-image: url(assets/frame_note.png) 5 / 15px;
+  background-color: #fffdf6;
+  background-image: url(assets/paper_note_margin.png), url(assets/paper_note.png);
+  background-size: 48px 144px, 48px 48px;
+  background-repeat: repeat-y, repeat;
+  padding-left: 72px;
+}
+.paper.note #reader-content, .paper.note #c-content { line-height: 48px; }
+.paper.postcard {
+  border-image: url(assets/frame_postcard.png) 5 / 15px;
+  background-color: #fff3d2;
+  background-image: url(assets/stamp.png), url(assets/paper_postcard.png);
+  background-size: 42px 48px, 96px 96px;
+  background-position: right 18px top 18px, 0 0;
+  background-repeat: no-repeat, repeat;
+}
+.paper.postcard #reader-title, .paper.postcard #c-title { margin-right: 60px; width: auto; }
+.paper.parcel {
+  border-image: url(assets/frame_parcel.png) 5 / 15px;
+  background-color: #c9a070;
+  background-image: url(assets/paper_parcel.png);
+  background-size: 96px 96px;
+}
+.paper.parcel > * { border-radius: 0; border: 3px solid #8a6b45; }
+
+/* ----- 郵箱選單與「我寄出的信」 ----- */
+.panel {
+  padding: 36px 44px;
+  background: #b9b09f;
+  font-family: var(--hand);
+}
+.panel h2 { margin: 0 0 24px; font: 700 40px var(--hand); color: #fff8ea; text-shadow: 3px 3px 0 var(--outline); }
+.panel h2 small { font-size: 22px; font-weight: 400; margin-left: 10px; }
+#mail-menu { width: 760px; text-align: center; }
+.menu-row { display: flex; gap: 30px; justify-content: center; }
+.btn.big { padding: 30px 40px; font-size: 32px; flex: 1; position: relative; }
+#menu-unread:not(:empty) {
+  position: absolute;
+  right: -14px; top: -16px;
+  padding: 2px 10px;
+  background: #d9604c;
+  border: 3px solid var(--outline);
+  color: #fff8ea;
+  font-size: 20px;
+}
+#sent-panel { width: 1100px; }
+#sent-list {
+  height: 540px;
+  overflow-y: auto;
+  padding: 16px;
+  background: #8f8677;
+  box-shadow: inset 0 6px 0 rgba(0, 0, 0, .25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#sent-list .empty { margin: auto; font-size: 26px; color: #e9e1d0; }
+.sent-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 18px;
+  background: #fff8ea;
+  border: 3px solid var(--outline);
+  box-shadow: 0 5px 0 var(--outline);
+  cursor: pointer;
+  color: var(--ink);
+  flex: none;
+}
+.sent-row:hover { translate: 0 -3px; }
+.sent-row.dead { background: #d9d2c5; }
+.sent-icon { width: 81px; height: 60px; flex: none; background: no-repeat center / contain; image-rendering: pixelated; }
+.sent-main { flex: 1; min-width: 0; }
+.sent-title { font-size: 26px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sent-meta  { font-size: 19px; opacity: .8; margin-top: 4px; }
+.sent-stats { font-size: 24px; white-space: nowrap; text-align: right; }
+.sent-stats .heart { color: #c2503f; }
+.sent-new { background: #d9604c; color: #fff8ea; border: 3px solid var(--outline); padding: 2px 10px; font-size: 18px; }
+
+/* ----- 音效開關、落葉 ----- */
+#btn-mute { position: absolute; right: 24px; top: 20px; z-index: 60; }
+/* 落葉：assets/leaf_*.png 是 8 格翻轉動畫（每格 11x11，放大 3 倍），位置與格數由 main.js 控制 */
+.leaf {
+  position: absolute;
+  left: -16px; top: -16px;
+  width: 33px; height: 33px;
+  background-repeat: no-repeat;
+  background-size: 264px 33px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}

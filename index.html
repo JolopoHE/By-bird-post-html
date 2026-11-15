@@ -18,15 +18,17 @@
     <div id="bird-layer"></div>
 
     <!-- 四個工具（目前為佔位圖，之後換正式美術） -->
-    <button id="tool-mailbox" class="tool" title="寫信、查看寄出的信">郵箱<span id="mail-badge" hidden></span></button>
-    <button id="tool-feed" class="tool" title="撒飼料，吸引送信鳥">飼料</button>
-    <button id="tool-broom" class="tool" title="掃除所有信件">掃帚</button>
-    <button id="tool-store" class="tool" title="存信箱">存信箱<span id="store-count">0 / 100</span></button>
+    <button id="tool-mailbox" class="tool" title="寫信、私人傳書、查看寄出的信"><span class="tool-label">郵箱</span><span id="mail-badge" hidden></span></button>
+    <button id="tool-feed" class="tool" title="撒飼料，吸引送信鳥"><span class="tool-label">飼料</span></button>
+    <button id="tool-broom" class="tool" title="掃除所有信件"><span class="tool-label">掃帚</span></button>
+    <button id="tool-store" class="tool" title="存信箱"><span class="tool-label">存信箱</span><span id="store-count">0 / 100</span></button>
 
     <!-- 遮罩：拆信閱讀視窗、存信箱面板 -->
     <div id="overlay" hidden>
       <div id="reader" hidden>
         <div id="reader-paper" class="paper">
+          <!-- 信件剩餘壽命（地上的信才有），放在信紙上最顯眼 -->
+          <div id="reader-life"><span id="life-text"></span><div id="life-bar"><i></i></div></div>
           <h2 id="reader-title"></h2>
           <div id="reader-meta"></div>
           <p id="reader-content"></p>
@@ -34,12 +36,10 @@
           <div id="reader-acts"></div>
         </div>
 
-        <!-- 信件剩餘壽命（地上的信才有） -->
-        <div id="reader-life"><div id="life-bar"><i></i></div><span id="life-text"></span></div>
-
         <!-- 按讚／回信：署名後交給休息區的鳥 -->
         <div id="respond" hidden>
           <textarea id="r-text" rows="3" maxlength="200" placeholder="寫下你的回信（最多 200 字）"></textarea>
+          <div class="count" id="r-count"></div>
           <div class="sign-row">
             <span id="r-hint"></span>
             署名：<input id="r-author" type="text" maxlength="12" placeholder="匿名">
@@ -53,6 +53,7 @@
           <button id="btn-reply" class="btn">回信</button>
           <button id="btn-save" class="btn primary">收進存信箱</button>
           <button id="btn-discard" class="btn danger">丟掉這封信</button>
+          <button id="btn-report" class="btn small" title="檢舉這封信">⚑ 檢舉</button>
           <button id="btn-close" class="btn">關閉</button>
         </div>
       </div>
@@ -86,7 +87,9 @@
         <div id="compose-write" hidden>
           <div id="compose-paper" class="paper">
             <input id="c-title" type="text" maxlength="20" placeholder="標題（最多 20 字）">
+            <div class="count" id="c-title-count"></div>
             <textarea id="c-content" rows="6" maxlength="500" placeholder="想說些什麼呢……"></textarea>
+            <div class="count" id="c-content-count"></div>
             <div id="c-attach-row">
               <label class="btn small" for="c-file" id="c-file-label">加入圖片</label>
               <input id="c-file" type="file" hidden>
@@ -109,6 +112,7 @@
         <div class="menu-row">
           <button id="btn-menu-write" class="btn primary big">寫一封信</button>
           <button id="btn-menu-sent" class="btn big">我寄出的信<span id="menu-unread"></span></button>
+          <button id="btn-menu-private" class="btn big">私人傳書<span id="menu-priv-unread"></span></button>
         </div>
         <div class="actions">
           <button id="btn-menu-close" class="btn">關閉</button>
@@ -124,6 +128,87 @@
         </div>
       </div>
 
+      <!-- 私人傳書：一對一的私密書信，只有雙方看得到（跟丟給陌生人的信不同） -->
+      <div id="private-panel" class="panel" hidden>
+        <h2>私人傳書 <small>一對一，只有你和對方看得到</small></h2>
+        <div id="pm-body">
+          <div id="pm-side">
+            <button id="btn-pm-new" class="btn primary small">＋ 新的傳書</button>
+            <div id="pm-list"></div>
+          </div>
+          <div id="pm-main">
+            <div id="pm-head" hidden>
+              <div><b id="pm-peer"></b><span id="pm-code"></span></div>
+              <div class="pm-tools">
+                <button id="btn-pm-report" class="btn small">⚑ 檢舉</button>
+                <button id="btn-pm-block" class="btn small">封鎖</button>
+              </div>
+            </div>
+            <div id="pm-new" hidden>
+              <label>對方的鳥號：<input id="pm-to" type="text" maxlength="16" placeholder="例如 BIRD-MIMI01" autocomplete="off"></label>
+              <div id="pm-demo">示範帳號：BIRD-MIMI01（小米）、BIRD-AZHE02（阿哲）、BIRD-YUKI03（Yuki）、BIRD-MOMO04（Momo）</div>
+            </div>
+            <div id="pm-msgs"></div>
+            <div id="pm-compose">
+              <textarea id="pm-text" rows="3" maxlength="300" placeholder="寫給對方的話（最多 300 字）"></textarea>
+              <div class="pm-foot">
+                <span class="count" id="pm-count"></span>
+                <button id="btn-pm-send" class="btn primary small">交給鳥送出</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="btn-pm-back" class="btn">返回郵箱</button>
+          <button id="btn-pm-close" class="btn">關閉</button>
+        </div>
+      </div>
+
+      <!-- 我的鳥巢：簡易個人頁（目前是訪客預設，帳號系統等後端接上） -->
+      <div id="profile-panel" class="panel" hidden>
+        <h2>我的鳥巢 <small>個人頁</small></h2>
+        <div id="pf-body">
+          <div id="pf-card">
+            <div id="pf-avatar" class="bird-icon sparrow"></div>
+            <div id="pf-avatars">
+              <button class="btn small" data-avatar="sparrow">麻雀</button>
+              <button class="btn small" data-avatar="pigeon">鴿子</button>
+              <button class="btn small" data-avatar="owl">貓頭鷹</button>
+            </div>
+            <label class="pf-field">暱稱（也是寫信、回信的預設署名）
+              <input id="pf-name" type="text" maxlength="12" placeholder="匿名">
+            </label>
+            <div class="pf-field">鳥號（別人用它寄私人傳書給你）
+              <div class="pf-code-row"><input id="pf-code" type="text" readonly><button id="btn-pf-copy" class="btn small">複製</button></div>
+            </div>
+            <div id="pf-joined"></div>
+            <div id="pf-guest">
+              訪客模式：資料只存在這台電腦。
+              <button id="btn-pf-login" class="btn small">登入／註冊</button>
+            </div>
+          </div>
+          <div id="pf-side">
+            <div id="pf-stats"></div>
+            <div id="pf-eggs"></div>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="btn-pf-save" class="btn primary">儲存</button>
+          <button id="btn-pf-close" class="btn">關閉</button>
+        </div>
+      </div>
+
+      <!-- 檢舉（信件、私人傳書共用）：目前只是把檢舉送到 api.js，之後由後端處理 -->
+      <div id="report-panel" class="panel" hidden>
+        <h2 id="report-title">檢舉</h2>
+        <div id="report-reasons"></div>
+        <textarea id="report-note" rows="2" maxlength="100" placeholder="想補充什麼嗎？（選填，最多 100 字）"></textarea>
+        <div class="actions">
+          <button id="btn-report-ok" class="btn danger">送出檢舉</button>
+          <button id="btn-report-cancel" class="btn">取消</button>
+        </div>
+      </div>
+
       <div id="store-panel" hidden>
         <h2>存信箱 <small id="store-panel-count"></small></h2>
         <div id="egg-shelf"></div>
@@ -135,6 +220,7 @@
     </div>
 
     <div id="leaf-layer"></div>
+    <button id="btn-profile" class="btn small" title="我的鳥巢（個人頁）">個人頁</button>
     <button id="btn-mute" class="btn small" title="開關音效">音效：開</button>
     <div id="toast"></div>
   </div>

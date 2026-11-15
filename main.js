@@ -69,6 +69,9 @@
   var seedLayer = document.getElementById("seed-layer");
   var toastEl = document.getElementById("toast");
   var feedBtn = document.getElementById("tool-feed");
+  var profilePanel = document.getElementById("profile-panel");
+  var privatePanel = document.getElementById("private-panel");
+  var reportPanel = document.getElementById("report-panel");
 
   // ---------- 狀態 ----------
   var birds = [];
@@ -197,18 +200,20 @@
     return best;
   }
 
-  // 收信區內找一個盡量不跟其他信重疊的位置
+  // 兩點之間的「間距」，以一封信的大小（約 190 x 140）為 1：小於 1 就會疊在一起
+  function spread(p, q) { return Math.max(Math.abs(p.x - q.x) / 190, Math.abs(p.y - q.y) / 140); }
+
+  // 收信區內找一個不跟其他信重疊的位置；找不到夠遠的，就挑最遠的
   function dropPoint() {
     var best = null, bestScore = -1;
-    for (var i = 0; i < 30; i++) {
+    for (var i = 0; i < 80; i++) {
       var p = { x: rand(INBOX.x1 + 120, INBOX.x2 - 120), y: rand(INBOX.y1 + 95, INBOX.y2 - 95) };
       var near = Infinity;
-      for (var j = 0; j < letters.length; j++) {
-        near = Math.min(near, dist(p.x, p.y, letters[j].x, letters[j].y));
-      }
+      for (var j = 0; j < letters.length; j++) near = Math.min(near, spread(p, letters[j]));
       for (var k = 0; k < birds.length; k++) {
-        if (birds[k].dropAt) near = Math.min(near, dist(p.x, p.y, birds[k].dropAt.x, birds[k].dropAt.y));
+        if (birds[k].dropAt) near = Math.min(near, spread(p, birds[k].dropAt));
       }
+      if (near >= 1) return p;
       if (near > bestScore) { bestScore = near; best = p; }
     }
     return best;
@@ -352,6 +357,7 @@
       var bar = document.getElementById("life-bar");
       bar.firstChild.style.width = Math.max(0, Math.min(100, left / LIFE * 100)) + "%";
       bar.classList.toggle("low", left < DYING);
+      document.getElementById("reader-life").classList.toggle("low", left < DYING);
     }
   }
 
@@ -362,6 +368,7 @@
   var storePanel = document.getElementById("store-panel");
   var compose = document.getElementById("compose");
   var btnSave = document.getElementById("btn-save");
+  var btnReport = document.getElementById("btn-report");
   var btnDiscard = document.getElementById("btn-discard");
   var reading = null;          // { data, letter }；letter 為 null 表示從存信箱打開
 
@@ -403,6 +410,7 @@
     renderActs(data);
     btnSave.hidden = !letter;       // 地上的信才能收藏
     btnDiscard.hidden = from !== "store";   // 存信箱裡的信才能丟掉
+    btnReport.hidden = !!data.mine || data.id === WELCOME.id;   // 別人的信才能檢舉
     hidePanels();
     reader.hidden = false;
     overlay.hidden = false;
@@ -481,6 +489,7 @@
       ? "按讚會幫這封信續命 " + LIKE_BONUS + " 秒"
       : "回信會幫這封信續命 " + REPLY_BONUS + " 秒";
     rAuthor.value = rAuthor.value || prefs.get("name", "");
+    refreshCounts();
     respond.hidden = false;
     reader.classList.add("responding");
     document.getElementById("reader-actions").hidden = true;
@@ -509,7 +518,7 @@
       responding = false;
       life[id] = res.expiresAt;
       markSeen(id);
-      if (reading && reading.letter === letter) { rText.value = ""; reading = null; closeOverlay(); }
+      if (reading && reading.letter === letter) { rText.value = ""; refreshCounts(); reading = null; closeOverlay(); }
       if (letters.indexOf(letter) < 0 || letter.leaving) return;   // 等待期間信已經不在地上
 
       // 信上蓋署名，等鳥來叼走
@@ -547,6 +556,9 @@
     compose.hidden = true;
     mailMenu.hidden = true;
     sentPanel.hidden = true;
+    profilePanel.hidden = true;
+    privatePanel.hidden = true;
+    reportPanel.hidden = true;
   }
 
   function closeOverlay() {
@@ -627,8 +639,13 @@
   }
 
   // 點遮罩空白處關閉（寫信時不關，避免誤觸；草稿會保留到寄出為止）
-  overlay.addEventListener("click", function (e) { if (e.target === overlay && compose.hidden) closeOverlay(); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !overlay.hidden) closeOverlay(); });
+  overlay.addEventListener("click", function (e) { if (e.target === overlay && compose.hidden && !(!privatePanel.hidden && pmText.value)) closeOverlay(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || overlay.hidden) return;
+    // 傳書寫到一半：第一下 Esc 只是離開輸入框，避免草稿不見
+    if (document.activeElement === pmText && pmText.value) { pmText.blur(); return; }
+    closeOverlay();
+  });
   document.getElementById("btn-close").addEventListener("click", closeOverlay);
   document.getElementById("btn-store-close").addEventListener("click", closeOverlay);
   btnSave.addEventListener("click", saveReading);
@@ -671,9 +688,9 @@
   }
 
   // 存信箱上方的蛋收藏架
-  function renderEggShelf(eggs) {
-    var shelf = document.getElementById("egg-shelf");
-    shelf.innerHTML = "<span>斑鳩蛋收藏：</span>";
+  function renderEggShelf(eggs, shelf, noLabel) {
+    shelf = shelf || document.getElementById("egg-shelf");
+    shelf.innerHTML = noLabel ? "" : "<span>斑鳩蛋收藏：</span>";
     EGG_KINDS.forEach(function (kind) {
       var n = eggs[kind.k] || 0;
       var slot = document.createElement("div");
@@ -703,13 +720,23 @@
   var mailboxBtn = document.getElementById("tool-mailbox");
   var mailBadge = document.getElementById("mail-badge");
 
-  // 郵箱上的數字、舉起的旗子（n 沒給就向 API 查）
-  function updateMailBadge(n) {
-    if (n == null) { API.getUnreadCount().then(updateMailBadge, quiet); return; }
-    mailBadge.hidden = !n;
-    mailBadge.textContent = n;
-    mailboxBtn.classList.toggle("has-mail", n > 0);
-    document.getElementById("menu-unread").textContent = n ? n + " 則新回應" : "";
+  // 郵箱上的數字、舉起的旗子＝寄出的信的新回應＋私人傳書的新訊息
+  function updateMailBadge() {
+    API.getUnreadDetail().then(function (d) {
+      var n = d.sent + d.priv;
+      mailBadge.hidden = !n;
+      mailBadge.textContent = n;
+      mailboxBtn.classList.toggle("has-mail", n > 0);
+      document.getElementById("menu-unread").textContent = d.sent ? d.sent + " 則新回應" : "";
+      document.getElementById("menu-priv-unread").textContent = d.priv ? d.priv + " 則新傳書" : "";
+      if (!n) releasePerch();     // 全部看過了：鳥台上的鳥飛走
+    }, quiet);
+  }
+
+  function releasePerch() {
+    birds.forEach(function (b) {
+      if (b.state === "perch" || b.state === "flyPerch") { b.perchSlot = null; b.state = "leave"; b.target = edgePoint(); }
+    });
   }
 
   function showMailMenu() {
@@ -762,11 +789,8 @@
       list.appendChild(row);
     });
 
-    // 看過就算已讀：數字歸零、旗子放下、鳥台上的鳥飛走
-    API.markSentRead().then(function () { updateMailBadge(0); }, quiet);
-    birds.forEach(function (b) {
-      if (b.state === "perch" || b.state === "flyPerch") { b.perchSlot = null; b.state = "leave"; b.target = edgePoint(); }
-    });
+    // 看過就算已讀：數字歸零、旗子放下、鳥台上的鳥飛走（若還有沒看的私人傳書，旗子會留著）
+    API.markSentRead().then(function () { updateMailBadge(); }, quiet);
 
     reading = null;
     hidePanels();
@@ -801,6 +825,302 @@
   document.getElementById("btn-menu-close").addEventListener("click", closeOverlay);
   document.getElementById("btn-sent-close").addEventListener("click", closeOverlay);
   updateMailBadge();
+
+  // ---------- 字數計數 ----------
+  var counters = [];
+  function bindCount(input, el, max) {
+    function update() {
+      var n = input.value.length;
+      el.textContent = n + " / " + max;
+      el.classList.toggle("warn", n >= max * 0.9);
+    }
+    input.addEventListener("input", update);
+    counters.push(update);
+    update();
+  }
+  function refreshCounts() { counters.forEach(function (f) { f(); }); }
+
+  function clock(sec) {
+    var d = new Date(sec * 1000);
+    return (d.getMonth() + 1) + "/" + d.getDate() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+
+  // ---------- 檢舉（信件、私人傳書共用；目前只是送到 api.js，之後由後端審核） ----------
+  var reportReasons = document.getElementById("report-reasons");
+  var reportNote = document.getElementById("report-note");
+  var reportTarget = null;     // { type, id }
+  var reportReason = null;
+  var reportBack = null;       // 送出或取消後要回到哪個畫面
+  var reporting = false;
+
+  function showReport(target, title, back) {
+    reportTarget = target;
+    reportBack = back;
+    reportReason = null;
+    document.getElementById("report-title").textContent = title;
+    reportNote.value = "";
+    reportReasons.innerHTML = "";
+    API.REPORT_REASONS.forEach(function (r) {
+      var b = document.createElement("button");
+      b.className = "btn";
+      b.textContent = r.label;
+      b.addEventListener("click", function () {
+        reportReason = r.k;
+        Array.prototype.forEach.call(reportReasons.children, function (c) { c.classList.toggle("on", c === b); });
+      });
+      reportReasons.appendChild(b);
+    });
+    hidePanels();
+    reportPanel.hidden = false;
+    overlay.hidden = false;
+  }
+  function leaveReport() {
+    var back = reportBack;
+    reportBack = null;
+    if (back) back(); else closeOverlay();
+  }
+  document.getElementById("btn-report-cancel").addEventListener("click", leaveReport);
+  document.getElementById("btn-report-ok").addEventListener("click", function () {
+    if (reporting) return;
+    reporting = true;
+    API.report({ type: reportTarget.type, id: reportTarget.id, reason: reportReason, note: reportNote.value }).then(function () {
+      reporting = false;
+      toast("已收到檢舉，謝謝你幫忙維護小鳥的天空");
+      leaveReport();
+    }, function (e) {
+      reporting = false;
+      fail(e);
+      if (e && e.code === "ALREADY_REPORTED") leaveReport();
+    });
+  });
+  btnReport.addEventListener("click", function () {
+    if (!reading) return;
+    var r = reading;
+    showReport({ type: "letter", id: r.data.id }, "檢舉這封信：" + r.data.title, function () { showReader(r.data, r.letter, r.from); });
+  });
+
+  // ---------- 我的鳥巢（簡易個人頁，目前是訪客預設） ----------
+  var pfAvatarEl = document.getElementById("pf-avatar");
+  var pfName = document.getElementById("pf-name");
+  var pfAvatar = "sparrow";
+
+  function drawAvatar() {
+    pfAvatarEl.className = "bird-icon " + pfAvatar;
+    Array.prototype.forEach.call(document.querySelectorAll("#pf-avatars .btn"), function (b) {
+      b.classList.toggle("on", b.dataset.avatar === pfAvatar);
+    });
+  }
+
+  function showProfile() {
+    API.getProfile().then(function (p) {
+      pfAvatar = p.avatar;
+      drawAvatar();
+      pfName.value = p.name;
+      document.getElementById("pf-code").value = p.id;
+      var d = new Date(p.joinedAt * 1000);
+      document.getElementById("pf-joined").textContent = "第一次來到鳥鳥傳信：" + d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate();
+      document.getElementById("pf-guest").hidden = !p.guest;
+      var cells = [["寄出的信", p.stats.sent], ["收到的讚", p.stats.likes], ["收到的回信", p.stats.replies],
+                   ["存信箱", p.stats.saved + " / " + STORE_MAX], ["讀過的信", p.stats.seen],
+                   ["蛋圖鑑", p.stats.eggKinds + " / " + EGG_KINDS.length]];
+      var stats = document.getElementById("pf-stats");
+      stats.innerHTML = "";
+      cells.forEach(function (c) {
+        var el = document.createElement("div");
+        el.className = "pf-stat";
+        el.innerHTML = "<b></b><span></span>";
+        el.firstChild.textContent = c[1];
+        el.lastChild.textContent = c[0];
+        stats.appendChild(el);
+      });
+      var box = document.getElementById("pf-eggs");
+      box.innerHTML = "<h3>斑鳩蛋圖鑑</h3>";
+      var shelf = document.createElement("div");
+      shelf.className = "egg-shelf";
+      box.appendChild(shelf);
+      renderEggShelf(p.eggs, shelf, true);
+      hidePanels();
+      profilePanel.hidden = false;
+      overlay.hidden = false;
+    }, fail);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("#pf-avatars .btn"), function (b) {
+    b.addEventListener("click", function () { pfAvatar = b.dataset.avatar; drawAvatar(); });
+  });
+  document.getElementById("btn-pf-save").addEventListener("click", function () {
+    API.updateProfile({ name: pfName.value, avatar: pfAvatar }).then(function () {
+      var name = pfName.value.trim();
+      cAuthor.value = name;          // 寫信、回信的署名跟著換
+      rAuthor.value = name;
+      toast("已儲存");
+    }, fail);
+  });
+  document.getElementById("btn-pf-copy").addEventListener("click", function () {
+    var inp = document.getElementById("pf-code");
+    function manual() { inp.select(); toast("已選取鳥號，請按 Ctrl+C 複製"); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(inp.value).then(function () { toast("已複製鳥號"); }, manual);
+    } else manual();
+  });
+  // 帳號系統還沒有後端：呼叫 API 的介面，目前會回「還在準備中」
+  document.getElementById("btn-pf-login").addEventListener("click", function () { API.auth.login().catch(fail); });
+  document.getElementById("btn-pf-close").addEventListener("click", closeOverlay);
+  document.getElementById("btn-profile").addEventListener("click", showProfile);
+
+  // ---------- 私人傳書：一對一，只有雙方看得到 ----------
+  var pmList = document.getElementById("pm-list");
+  var pmMsgs = document.getElementById("pm-msgs");
+  var pmHead = document.getElementById("pm-head");
+  var pmNew = document.getElementById("pm-new");
+  var pmTo = document.getElementById("pm-to");
+  var pmText = document.getElementById("pm-text");
+  var pmSend = document.getElementById("btn-pm-send");
+  var btnPmBlock = document.getElementById("btn-pm-block");
+  var pmMode = "idle";         // "idle" 沒選對話、"thread" 在對話裡、"new" 在寫給新對象
+  var pmCurrent = null;        // 目前對話的 id（對方的鳥號）
+  var pmSending = false;
+
+  function pmEmpty(text) {
+    pmMsgs.innerHTML = "";
+    var el = document.createElement("div");
+    el.className = "empty";
+    el.textContent = text;
+    pmMsgs.appendChild(el);
+  }
+
+  // 切換右邊的狀態
+  function pmSetMode(mode) {
+    pmMode = mode;
+    pmHead.hidden = mode !== "thread";
+    pmNew.hidden = mode !== "new";
+    pmText.disabled = pmSend.disabled = mode === "idle";
+    if (mode === "idle") {
+      pmCurrent = null;
+      pmEmpty("選一個對話，或按「新的傳書」，輸入對方的鳥號寫一封信。");
+    } else if (mode === "new") {
+      pmCurrent = null;
+      pmEmpty("輸入對方的鳥號和想說的話，鴿子會幫你送過去。");
+    }
+  }
+
+  function pmRefreshList(autoOpen) {
+    API.getThreads().then(function (list) {
+      pmList.innerHTML = "";
+      if (!list.length) {
+        pmList.innerHTML = '<div class="empty">還沒有傳書。<br>按上面的「新的傳書」，輸入對方的鳥號開始吧。</div>';
+      }
+      list.forEach(function (t) {
+        var el = document.createElement("div");
+        el.className = "pm-item" + (t.id === pmCurrent ? " on" : "");
+        var name = document.createElement("b");
+        name.textContent = t.peer.name;
+        var last = document.createElement("span");
+        last.textContent = t.blocked ? "（已封鎖）" : t.last ? (t.last.from === "me" ? "我：" : "") + t.last.text : "";
+        el.appendChild(name);
+        el.appendChild(last);
+        if (t.unread) {
+          var dot = document.createElement("span");
+          dot.className = "pm-new-dot";
+          dot.textContent = t.unread;
+          el.appendChild(dot);
+        }
+        el.addEventListener("click", function () { pmOpen(t.id); });
+        pmList.appendChild(el);
+      });
+      if (autoOpen && !pmCurrent) {
+        var u = list.filter(function (t) { return t.unread; })[0];
+        if (u) pmOpen(u.id);
+      }
+    }, fail);
+  }
+
+  // 打開一個對話：顯示訊息、標成已讀
+  function pmOpen(id) {
+    API.getThread(id).then(function (t) {
+      pmCurrent = id;
+      pmMode = "thread";
+      pmHead.hidden = false;
+      pmNew.hidden = true;
+      document.getElementById("pm-peer").textContent = t.peer.name;
+      document.getElementById("pm-code").textContent = t.peer.code;
+      btnPmBlock.textContent = t.blocked ? "解除封鎖" : "封鎖";
+      pmText.disabled = pmSend.disabled = !!t.blocked;
+      pmMsgs.innerHTML = "";
+      if (!t.messages.length) pmEmpty("還沒有訊息。");
+      t.messages.forEach(function (m) {
+        var el = document.createElement("div");
+        el.className = "pm-msg" + (m.from === "me" ? " me" : "");
+        el.appendChild(document.createTextNode(m.text));
+        var tm = document.createElement("time");
+        tm.textContent = clock(m.at);
+        el.appendChild(tm);
+        pmMsgs.appendChild(el);
+      });
+      if (t.blocked) {
+        var note = document.createElement("div");
+        note.className = "pm-notice";
+        note.textContent = "你封鎖了對方，雙方都不能再傳書";
+        pmMsgs.appendChild(note);
+      }
+      pmMsgs.scrollTop = pmMsgs.scrollHeight;
+      return API.markThreadRead(id);
+    }).then(function () { updateMailBadge(); pmRefreshList(); }, fail);
+  }
+
+  // keep：從檢舉畫面回來時保留原本的對話與草稿
+  function showPrivate(keep) {
+    hidePanels();
+    privatePanel.hidden = false;
+    overlay.hidden = false;
+    if (!keep) { pmSetMode("idle"); pmText.value = ""; refreshCounts(); }
+    pmRefreshList(!keep);
+  }
+
+  function pmSendNow() {
+    if (pmSending || pmMode === "idle") return;
+    pmSending = true;
+    API.sendPrivate(pmMode === "new" ? pmTo.value : pmCurrent, pmText.value).then(function (res) {
+      pmSending = false;
+      pmText.value = "";
+      pmTo.value = "";
+      refreshCounts();
+      dispatchSender({ id: res.message.id, bird: "pigeon" });   // 鴿子來郵箱把信叼走
+      sfx("send");
+      pmOpen(res.threadId);
+    }, function (e) { pmSending = false; fail(e); });
+  }
+
+  document.getElementById("btn-menu-private").addEventListener("click", function () { showPrivate(false); });
+  document.getElementById("btn-pm-new").addEventListener("click", function () { pmSetMode("new"); pmRefreshList(); pmTo.focus(); });
+  pmSend.addEventListener("click", pmSendNow);
+  pmText.addEventListener("keydown", function (e) { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") pmSendNow(); });
+  document.getElementById("btn-pm-back").addEventListener("click", showMailMenu);
+  document.getElementById("btn-pm-close").addEventListener("click", closeOverlay);
+  btnPmBlock.addEventListener("click", function () {
+    var id = pmCurrent;
+    if (!id) return;
+    API.getThread(id).then(function (t) { return API.blockPeer(id, !t.blocked); }).then(function (on) {
+      toast(on ? "已封鎖對方" : "已解除封鎖");
+      pmOpen(id);
+    }, fail);
+  });
+  document.getElementById("btn-pm-report").addEventListener("click", function () {
+    var id = pmCurrent;
+    if (!id) return;
+    showReport({ type: "user", id: id }, "檢舉對方（" + document.getElementById("pm-peer").textContent + "）", function () { showPrivate(true); });
+  });
+
+  // 收到新的傳書
+  API.onPrivate(function (ev) {
+    var viewing = !privatePanel.hidden && pmMode === "thread" && pmCurrent === ev.threadId;
+    sfx("notify");
+    if (viewing) { pmOpen(ev.threadId); return; }
+    updateMailBadge();
+    perchBird(ev.peer.avatar);     // 一隻鳥飛到郵箱旁的鳥台，旗子舉起
+    toast(ev.peer.name + " 傳來一封私人傳書");
+    if (!privatePanel.hidden) pmRefreshList();
+  });
 
   // ---------- 落葉 ----------
   // 每片葉子有平面位置 (x, y) 和離地高度 z。在空中時一邊翻轉一邊飄，落地後靜止，
@@ -1042,6 +1362,7 @@
       cTitle.value = "";
       cContent.value = "";
       clearAttach();
+      refreshCounts();
       draftBird = null;
       if (!compose.hidden) closeOverlay();
       sfx("send");
@@ -1425,4 +1746,9 @@
     card.addEventListener("click", function () { pickBird(card.dataset.bird); });
   });
   document.getElementById("tool-store").addEventListener("click", showStore);
+
+  bindCount(cTitle, document.getElementById("c-title-count"), 20);
+  bindCount(cContent, document.getElementById("c-content-count"), 500);
+  bindCount(rText, document.getElementById("r-count"), 200);
+  bindCount(pmText, document.getElementById("pm-count"), API.RULES.privateMax);
 })();

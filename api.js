@@ -19,8 +19,31 @@ window.BirdAPI = (function () {
     likeBonus: 60,       // 按讚續命（秒）
     replyBonus: 120,     // 回信續命（秒）
     storeMax: 100,       // 存信箱上限
-    titleMax: 20, contentMax: 500, authorMax: 12, replyMax: 200   // 字數上限（後端防線）
+    titleMax: 20, contentMax: 500, authorMax: 12, replyMax: 200,  // 字數上限（後端防線）
+    privateMax: 300,     // 私人傳書每則上限
+    reportNoteMax: 100   // 檢舉補充說明上限
   };
+
+  // 檢舉原因（前後端共用的代碼，後端定稿後以後端為準）
+  var REPORT_REASONS = [
+    { k: "spam",    label: "垃圾訊息／廣告" },
+    { k: "abuse",   label: "辱罵或騷擾" },
+    { k: "adult",   label: "不當內容" },
+    { k: "privacy", label: "洩漏個人資料" },
+    { k: "other",   label: "其他" }
+  ];
+
+  // 模擬私人傳書的對象：真實的鳥號由後端發放，這裡放幾個示範帳號讓前端可以測試
+  var SIM_PRIVATE = true;          // 示範帳號會自動回信（接後端後改成 false）
+  var SIM_PM_REPLY = [4, 10];      // 幾秒後回信
+  var DEMO_USERS = [
+    { code: "BIRD-MIMI01", name: "小米", avatar: "sparrow" },
+    { code: "BIRD-AZHE02", name: "阿哲", avatar: "pigeon" },
+    { code: "BIRD-YUKI03", name: "Yuki", avatar: "owl" },
+    { code: "BIRD-MOMO04", name: "Momo", avatar: "sparrow" }
+  ];
+  var PM_REPLIES = ["收到你的信了，謝謝你特地寫給我。", "哈哈，我也是這樣想的！", "最近過得好嗎？",
+                    "這句話我會好好收著。", "鳥飛得好快，一下就到了。", "改天再聊，晚安。"];
 
   // ---------- 模擬網路狀況（測試載入中／失敗重試用，平常保持 0） ----------
   var MOCK_DELAY = [0, 0];     // 每次請求延遲幾毫秒（隨機區間）
@@ -210,10 +233,19 @@ window.BirdAPI = (function () {
     });
   }
 
+  function sentUnread() {
+    return mine.reduce(function (n, d) { return n + ((acts[d.id] && acts[d.id].unread) || 0); }, 0);
+  }
+  function privateUnread() {
+    return Object.keys(threads).reduce(function (n, k) { return n + (threads[k].unread || 0); }, 0);
+  }
+  // 郵箱旗子上的總數＝寄出的信的新回應＋私人傳書的新訊息
   function getUnreadCount() {
-    return request(function () {
-      return mine.reduce(function (n, d) { return n + ((acts[d.id] && acts[d.id].unread) || 0); }, 0);
-    });
+    return request(function () { return sentUnread() + privateUnread(); });
+  }
+  // 分開的數字：{ sent: 新回應, priv: 新傳書 }
+  function getUnreadDetail() {
+    return request(function () { return { sent: sentUnread(), priv: privateUnread() }; });
   }
 
   // 看過「我寄出的信」後，新回應全部標成已讀
@@ -267,6 +299,151 @@ window.BirdAPI = (function () {
     });
   }
 
+  // ---------- 個人檔案（目前是訪客預設，之後換成登入帳號） ----------
+  var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  var uid = load("birdmail_uid", null);       // 鳥號：別人用它寄私人傳書給我（正式版由後端發放）
+  if (!uid) {
+    uid = "BIRD-";
+    for (var ci = 0; ci < 6; ci++) uid += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+    persist("birdmail_uid", uid);
+  }
+  var joined = load("birdmail_joined", null); // 第一次來的時間
+  if (!joined) { joined = nowS(); persist("birdmail_joined", joined); }
+  var BIRD_TYPES = ["sparrow", "pigeon", "owl"];
+
+  function getProfile() {
+    return request(function () {
+      var likes = 0, replies = 0, eggTotal = 0, eggKinds = 0;
+      mine.forEach(function (d) {
+        var a = acts[d.id];
+        if (a) { likes += a.likes.length; replies += a.replies.length; }
+      });
+      Object.keys(eggs).forEach(function (k) { if (eggs[k] > 0) { eggTotal += eggs[k]; eggKinds++; } });
+      return {
+        id: uid, name: prefs.get("name", ""), avatar: load("birdmail_avatar", "sparrow"),
+        joinedAt: joined, guest: true,        // guest：還沒有登入帳號
+        stats: { sent: mine.length, likes: likes, replies: replies, saved: saved.length, seen: seen.length, eggs: eggTotal, eggKinds: eggKinds },
+        eggs: eggs
+      };
+    });
+  }
+
+  // p：{ name?, avatar? }。暱稱同時是寫信、回信的預設署名
+  function updateProfile(p) {
+    return request(function () {
+      if (p.name != null) {
+        var n = String(p.name).trim();
+        if (n.length > RULES.authorMax) throw err("TOO_LONG", "暱稱最多 " + RULES.authorMax + " 個字");
+        prefs.set("name", n);
+      }
+      if (p.avatar != null) {
+        if (BIRD_TYPES.indexOf(p.avatar) < 0) throw err("INVALID", "沒有這種鳥");
+        persist("birdmail_avatar", p.avatar);
+      }
+      return true;
+    });
+  }
+
+  // 帳號：還沒有後端，先留好介面。接上後 login／register 成功回傳 profile，logout 回傳 true
+  function notReady() { return Promise.reject(err("NOT_IMPLEMENTED", "帳號系統還在準備中，等後端接上就能使用")); }
+  var auth = { login: notReady, register: notReady, logout: notReady };
+
+  // ---------- 私人傳書（一對一，只有雙方看得到；沒有壽命，不會被風吹走） ----------
+  // thread：{ id（對方鳥號）, peer: { code, name, avatar }, messages: [{ id, from: "me"|"peer", text, at }], unread, blocked }
+  var threads = load("birdmail_threads", {});
+  var pmListeners = [];
+  var pmSeq = 0;
+
+  function findUser(code) { return DEMO_USERS.filter(function (u) { return u.code === code; })[0]; }
+  function lastOf(t) { return t.messages[t.messages.length - 1] || null; }
+  function onPrivate(cb) { pmListeners.push(cb); }   // cb({ threadId, peer, message })：收到新的傳書
+
+  // 對話清單（新的在前）。每筆：{ id, peer, last, unread, blocked }
+  function getThreads() {
+    return request(function () {
+      return Object.keys(threads).map(function (k) {
+        var t = threads[k];
+        return { id: t.id, peer: t.peer, last: lastOf(t), unread: t.unread || 0, blocked: !!t.blocked };
+      }).sort(function (a, b) { return (b.last ? b.last.at : 0) - (a.last ? a.last.at : 0); });
+    });
+  }
+
+  function getThread(id) {
+    return request(function () {
+      var t = threads[id];
+      if (!t) throw err("NOT_FOUND", "找不到這個對話");
+      return t;
+    });
+  }
+
+  function markThreadRead(id) {
+    return request(function () {
+      if (threads[id]) { threads[id].unread = 0; persist("birdmail_threads", threads); }
+      return true;
+    });
+  }
+
+  // 寄一則私人傳書給對方的鳥號；對方沒有對話就自動建立。成功回傳 { threadId, message }
+  function sendPrivate(to, text) {
+    return request(function () {
+      var code = String(to || "").trim().toUpperCase();
+      text = String(text || "").trim();
+      if (!code) throw err("EMPTY", "請輸入對方的鳥號");
+      if (code === uid) throw err("SELF", "不能傳書給自己");
+      var user = findUser(code);
+      if (!user) throw err("USER_NOT_FOUND", "找不到這個鳥號，請跟對方確認一下");
+      if (!text) throw err("EMPTY", "還沒有寫內容");
+      if (text.length > RULES.privateMax) throw err("TOO_LONG", "字數超過上限了");
+      var t = threads[code] || (threads[code] = { id: code, peer: copy(user), messages: [], unread: 0, blocked: false });
+      if (t.blocked) throw err("BLOCKED", "你封鎖了對方，先解除封鎖才能傳書");
+      var m = { id: "pm-" + Date.now() + "-" + (++pmSeq), from: "me", text: text, at: nowS() };
+      t.messages.push(m);
+      persist("birdmail_threads", threads);
+      if (SIM_PRIVATE) schedulePeerReply(code);
+      return { threadId: code, message: m };
+    });
+  }
+
+  // 封鎖／解除封鎖對方：封鎖後雙方都不能再傳書
+  function blockPeer(id, flag) {
+    return request(function () {
+      if (!threads[id]) throw err("NOT_FOUND", "找不到這個對話");
+      threads[id].blocked = !!flag;
+      persist("birdmail_threads", threads);
+      return !!flag;
+    });
+  }
+
+  // 模擬示範帳號回信
+  function schedulePeerReply(code) {
+    setTimeout(function () {
+      var t = threads[code];
+      if (!t || t.blocked) return;
+      var m = { id: "pm-" + Date.now() + "-" + (++pmSeq), from: "peer", text: pickOne(PM_REPLIES), at: nowS() };
+      t.messages.push(m);
+      t.unread = (t.unread || 0) + 1;
+      persist("birdmail_threads", threads);
+      var ev = { threadId: code, peer: copy(t.peer), message: copy(m) };
+      pmListeners.forEach(function (cb) { try { cb(copy(ev)); } catch (e) { console.error(e); } });
+    }, rand(SIM_PM_REPLY[0], SIM_PM_REPLY[1]) * 1000);
+  }
+
+  // ---------- 檢舉 ----------
+  // target：{ type: "letter"|"message"|"user", id, reason: REPORT_REASONS 的 k, note? }
+  var reports = load("birdmail_reports", []);   // 目前只記在本機，之後由後端接手審核
+  function report(target) {
+    return request(function () {
+      var reason = String(target.reason || "");
+      if (!REPORT_REASONS.some(function (r) { return r.k === reason; })) throw err("EMPTY", "請先選一個檢舉原因");
+      var key = target.type + ":" + target.id;
+      if (reports.some(function (r) { return r.key === key; })) throw err("ALREADY_REPORTED", "你已經檢舉過了，我們會處理");
+      reports.push({ key: key, type: target.type, id: target.id, reason: reason,
+                     note: String(target.note || "").slice(0, RULES.reportNoteMax), at: nowS() });
+      persist("birdmail_reports", reports);
+      return true;
+    });
+  }
+
   // ---------- 純前端偏好（同步，只存本機） ----------
   // 鍵：name（上次的署名）、mute（音效開關）、welcome（是否已送過歡迎信）
   var prefs = {
@@ -280,8 +457,13 @@ window.BirdAPI = (function () {
     sendLetter: sendLetter,
     respond: respond, getActs: getActs,
     getSaved: getSaved, getSavedCount: getSavedCount, save: save, unsave: unsave,
-    getSent: getSent, getUnreadCount: getUnreadCount, markSentRead: markSentRead, onFeedback: onFeedback,
+    getSent: getSent, getUnreadCount: getUnreadCount, getUnreadDetail: getUnreadDetail,
+    markSentRead: markSentRead, onFeedback: onFeedback,
     getEggs: getEggs, addEgg: addEgg,
+    getProfile: getProfile, updateProfile: updateProfile, auth: auth,
+    getThreads: getThreads, getThread: getThread, markThreadRead: markThreadRead,
+    sendPrivate: sendPrivate, blockPeer: blockPeer, onPrivate: onPrivate,
+    REPORT_REASONS: copy(REPORT_REASONS), report: report,
     prefs: prefs
   };
 })();

@@ -150,12 +150,177 @@ def bird(kind,pose,cargo=False):
     return P
 
 ROWS=[('idle',0),('peck',0),('fly1',0),('fly2',0),('idle',1),('fly1',1),('fly2',1)]
-for kind in BIRDS:
+for kind in ('sparrow','dove'):   # 麻雀、斑鳩用這個原畫法；鴿子、貓頭鷹見下方精緻版
     sheet=Image.new('RGBA',(CELL*8,CELL*len(ROWS)),(0,0,0,0))
     for ri,(pose,cg) in enumerate(ROWS):
         P=bird(kind,pose,bool(cg))
         for di in range(8):
             sheet.paste(raster(P,di*45),(di*CELL,ri*CELL))
+    sheet.save(f'{OUTDIR}/bird_{kind}.png')
+
+# ---------- 鴿子、貓頭鷹（精緻版）----------
+# 形狀、位置、顏色沿用上面的原版（BIRDS），在原版形狀上補了幾筆細節（程式裡標「精緻化」）。
+# 差別在畫法：先用 4 倍解析度畫好「頭朝上」的模型，旋轉後每 4x4 取最多的顏色縮回 48x48，
+# 這樣斜向的輪廓不會歪斜、鋸齒。麻雀與環頸斑鳩仍用上面的原畫法。
+from PIL import ImageDraw
+S_HI=4
+def render_hi(prims):
+    """把形狀清單畫在 4 倍解析度的畫布上（鳥頭朝上）。另外畫一張「不打光」的遮罩。"""
+    im = Image.new('RGBA', (CELL * S_HI, CELL * S_HI), (0, 0, 0, 0))
+    fl = Image.new('L', (CELL * S_HI, CELL * S_HI), 0)
+    d, df = ImageDraw.Draw(im), ImageDraw.Draw(fl)
+
+    def T(x, y):
+        return ((x + CELL / 2) * S_HI, (y + CELL / 2) * S_HI)
+    for kind, a, col, flat in prims:
+        if kind == 'e':
+            cx, cy, rx, ry = a
+            pts = [T(cx + rx * math.cos(i / 40 * 2 * math.pi), cy + ry * math.sin(i / 40 * 2 * math.pi)) for i in range(40)]
+        else:
+            x0, y0, x1, y1 = a
+            pts = [T(x0, y0), T(x1, y0), T(x1, y1), T(x0, y1)]
+        d.polygon(pts, fill=hexc(col) + (255,))
+        df.polygon(pts, fill=255 if flat else 0)
+    return im, fl
+
+
+def view_hi(hi, angle):
+    """朝 angle（0=右，順時針）轉過去，每 4x4 取最多的顏色縮回 48x48，再加外框與打光"""
+    im, fl = hi
+    im = im.rotate(-(angle + 90), resample=Image.NEAREST)
+    fl = fl.rotate(-(angle + 90), resample=Image.NEAREST)
+    px, pf = im.load(), fl.load()
+    g = [[None] * CELL for _ in range(CELL)]
+    flat = set()
+    for y in range(CELL):
+        for x in range(CELL):
+            cnt, op, nf = {}, 0, 0
+            for j in range(S_HI):
+                for i in range(S_HI):
+                    r, gg, b, a = px[x * S_HI + i, y * S_HI + j]
+                    if a > 128:
+                        op += 1
+                        cnt[(r, gg, b)] = cnt.get((r, gg, b), 0) + 1
+                        if pf[x * S_HI + i, y * S_HI + j] > 128:
+                            nf += 1
+            if op >= S_HI * S_HI * 0.5:
+                g[y][x] = max(cnt, key=cnt.get)
+                if nf * 2 >= op:
+                    flat.add((x, y))
+    return finish(g, flat, CELL, CELL)
+
+
+BIRDS_V2 = {
+ 'pigeon': dict(body=(0, 3, 7.4, 9.2), head=(0, -7.6, 4.5, 4.5), wing=(6.4, 4.2, 3.3, 7.8), tail=(4, 10, 17), span=(8.8, 5.2),
+                back='#a3adb8', wingc='#8792a0', headc='#7d8a98', tailc='#5d6873', beak='#e8dccd', eye='#e07b39'),
+ 'owl': dict(body=(0, 3.5, 9.2, 9.6), head=(0, -6.5, 7.6, 6.0), wing=(8.2, 4.5, 3.4, 8.2), tail=(4, 11, 15.5), span=(9.6, 6.2),
+             back='#8a6a4c', wingc='#6a4f38', headc='#9a7858', tailc='#553f2c', beak='#e0a13a', eye='#1c1410'),
+}
+
+
+def bird_v2(kind, pose, cargo=False):
+    d = BIRDS_V2[kind]
+    P = []
+
+    def e(cx, cy, rx, ry, c, fl=False):
+        P.append(('e', (cx, cy, rx, ry), c, fl))
+
+    def r(x0, y0, x1, y1, c, fl=False):
+        P.append(('r', (x0, y0, x1, y1), c, fl))
+
+    def dot(x, y, c, rad=.78):
+        e(x, y, rad, rad, c, True)
+    fly = pose in ('fly1', 'fly2')
+    dy = (-2 if pose == 'fly1' else 2)
+    hy = -2 if pose == 'peck' else 0
+    bx, by, brx, bry = d['body']
+    hx, hcy, hrx, hry = d['head']
+    hcy += hy
+    tw, t0, t1 = d['tail']
+
+    # 尾巴
+    r(-tw, t0, tw, t1, d['tailc'])
+    r(-tw + 1, t1, tw - 1, t1 + 1, d['tailc'])
+    if kind == 'pigeon':
+        r(-tw, t1 - 2.2, tw, t1 - 0.8, '#3f4852', True)
+        r(-0.4, t0 + 2.6, 0.4, t1 - 2.4, '#515b66', True)                       # 精緻化：尾羽中間的縫
+    if kind == 'owl':
+        r(-tw, t0 + 1.6, tw, t0 + 2.4, '#3f2e20', True)                         # 精緻化：尾巴兩道深色橫紋
+        r(-tw, t0 + 3.4, tw, t0 + 4.1, '#3f2e20', True)
+    # 展開的翅膀（飛行）
+    if fly:
+        sp, ch = d['span']
+        for sx in (-1, 1):
+            e(sx * (brx + sp * 0.42), by - 1.5 + dy * 0.6, sp, ch, d['wingc'])
+            # 精緻化：靠身體的一半是較淺的覆羽
+            e(sx * (brx + sp * 0.12), by - 2.3 + dy * 0.6, sp * 0.62, ch * 0.52,
+              '#96a1ae' if kind == 'pigeon' else '#7b5e44')
+            for i in range(3):
+                dot(sx * (brx + sp * 0.25 + i * sp * 0.42), by + 0.6 + dy * 0.6 + (i % 2), '#3b2a1a')
+            if kind == 'pigeon':
+                e(sx * (brx + sp * 0.5), by - 0.2 + dy * 0.6, sp * 0.7, .8, '#3f4852', True)
+            if kind == 'owl':
+                for i in range(3):                                                # 精緻化：翅膀上的淺色斑點
+                    dot(sx * (brx + sp * 0.08 + i * sp * 0.34), by - 3.0 + dy * 0.6 + (i % 2) * 0.8, '#d9c2a3', .7)
+    # 身體
+    e(bx, by, brx, bry, d['back'])
+    # 精緻化：背中央的亮面，讓身體更有圓潤感
+    e(bx, by - 0.8, brx - 2.8, bry - 3.2, '#b3bcc6' if kind == 'pigeon' else '#977659')
+    # 收起的翅膀
+    if not fly:
+        wx, wy, wrx, wry = d['wing']
+        for sx in (-1, 1):
+            e(sx * wx, wy, wrx, wry, d['wingc'])
+            # 精緻化：肩上較淺的覆羽
+            e(sx * wx, wy - 3.6, wrx * 0.8, 2.3, '#96a1ae' if kind == 'pigeon' else '#7b5e44')
+            if kind == 'pigeon':
+                e(sx * wx, wy + 1.5, wrx * .95, .8, '#3f4852', True)
+                e(sx * wx, wy + 4.2, wrx * .8, .8, '#3f4852', True)
+                e(sx * wx * 0.94, wy + 6.6, wrx * 0.55, 1.1, '#6c7785')         # 精緻化：深一點的翅尖
+            else:
+                for k in (0.5, 3.0):
+                    dot(sx * wx, wy + k, '#3b2a1a', .7)
+                dot(sx * wx, wy + 5.4, '#3b2a1a', .7)                           # 精緻化：多一點斑
+                dot(sx * (wx - 0.4), wy - 2.4, '#d9c2a3', .7)                   # 精緻化：肩上的淺色點
+    # 背上的花紋
+    if kind == 'owl':
+        for (x, y) in ((-3, -2), (2.5, -.5), (-1, 2), (3.5, 3.5), (-3.5, 5), (0.5, 6)):
+            dot(x, by - 2 + y, '#d9c2a3')
+    if kind == 'pigeon':
+        e(0, hcy + 4.6, 3.8, 1.9, '#5f9a84', True)                    # 頸部的綠色光澤
+    # 頭
+    e(hx, hcy, hrx, hry, d['headc'])
+    e(hx, hcy + 0.6, hrx - 1.5, hry - 1.7, '#8b98a6' if kind == 'pigeon' else '#a98764')   # 精緻化：頭頂的亮面
+    if kind == 'owl':
+        for sx in (-1, 1):
+            e(sx * 5.6, hcy - 5.2, 1.5, 2.0, '#553f2c')                           # 耳羽
+        e(0, hcy - 2.4, 5.6, 3.0, '#c9ad8a', True)                                # 臉盤
+        e(0, hcy - 1.2, 0.7, 1.6, '#b09471', True)                                # 精緻化：兩眼之間的鼻樑
+        for sx in (-1, 1):
+            e(sx * 2.9, hcy - 2.6, 1.55, 1.55, '#f2c14e', True)
+            dot(sx * 2.9, hcy - 2.9, '#1c1410', .72)
+        r(-.9, hcy - 6.3, .9, hcy - 5.0, d['beak'], True)
+    else:
+        ex = hrx * .58
+        for sx in (-1, 1):
+            dot(sx * ex, hcy - .3, d['eye'])
+        r(-1, hcy - hry - 1.25, 1, hcy - hry - .05, d['beak'], True)
+        dot(0, hcy - hry + .9, '#ffffff', .7)
+    # 嘴上叼的信
+    if cargo:
+        ty = hcy - hry - (2.2 if kind != 'owl' else 1.6)
+        r(-3.4, ty - 4.6, 3.4, ty - .2, '#fbf3df', True)
+        dot(0, ty - 2.4, '#d9604c', .8)
+    return P
+
+
+
+for kind in BIRDS_V2:
+    sheet=Image.new('RGBA',(CELL*8,CELL*len(ROWS)),(0,0,0,0))
+    for ri,(pose,cg) in enumerate(ROWS):
+        hi=render_hi(bird_v2(kind,pose,bool(cg)))
+        for di in range(8):
+            sheet.paste(view_hi(hi,di*45),(di*CELL,ri*CELL))
     sheet.save(f'{OUTDIR}/bird_{kind}.png')
 
 # ---------- 信件三種紙張 × 未拆/已拆（標題由網頁疊上去，圖上不放字） ----------
@@ -280,25 +445,177 @@ for si,(nm,fn) in enumerate((('note',note),('postcard',postcard),('parcel',parce
         for st in(1,2,3): aged(base,st,si*2+op).save(f'{OUTDIR}/letter_{tag}_a{st}.png')
 
 # ---------- 四個工具 ----------
+# ---------- 郵箱（新版）：圓頂紅色郵筒、黃銅投信口、門上的信封徽章；兩側是用托架撐住的木頭鳥台 ----------
+# 尺寸與鳥台位置跟舊版相同（88x46、木板在 y=12~16，左右各一塊），有新回應時旗子舉起
+MB_W, MB_H = 88, 46
+class MbSprite:
+    def __init__(s):
+        s.g = [[None] * MB_W for _ in range(MB_H)]
+        s.flat = set()
+
+    def px(s, x, y, c, flat=False):
+        x = int(x)
+        y = int(y)
+        if 0 <= x < MB_W and 0 <= y < MB_H:
+            s.g[y][x] = hexc(c)
+            (s.flat.add if flat else s.flat.discard)((x, y))
+
+    def pxm(s, x, y, c, flat=False):
+        """左右對稱地畫（以 x=43.5 為軸）"""
+        s.px(x, y, c, flat)
+        s.px(MB_W - 1 - x, y, c, flat)
+
+    def rect(s, x0, y0, x1, y1, c, flat=False, mirror=False):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                (s.pxm if mirror else s.px)(x, y, c, flat)
+
+    def line(s, x0, y0, x1, y1, c, mirror=False):
+        n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+        for i in range(n + 1):
+            t = i / n
+            (s.pxm if mirror else s.px)(round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t), c)
+
+    def ell(s, cx, cy, rx, ry, c, flat=False, top_only=False):
+        for y in range(MB_H):
+            for x in range(MB_W):
+                if top_only and y + .5 > cy:
+                    continue
+                if ((x + .5 - cx) / rx) ** 2 + ((y + .5 - cy) / ry) ** 2 <= 1:
+                    s.px(x, y, c, flat)
+
+    def render(s):
+        im = Image.new('RGBA', (MB_W, MB_H), (0, 0, 0, 0))
+        p = im.load()
+
+        def e(x, y):
+            return not (0 <= x < MB_W and 0 <= y < MB_H) or s.g[y][x] is None
+        for y in range(MB_H):
+            for x in range(MB_W):
+                c = s.g[y][x]
+                if c is None:
+                    if any(not e(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                        p[x, y] = OUT + (255,)
+                    continue
+                if (x, y) not in s.flat:
+                    if e(x, y - 1) or e(x - 1, y):
+                        c = shade(c, 1.14)
+                    elif e(x, y + 1) or e(x + 1, y):
+                        c = shade(c, 0.82)
+                p[x, y] = c + (255,)
+        return im
+
+
+RED, RED_D, RED_DD, RED_L = '#d9604c', '#b8473a', '#8f3a30', '#f08a78'
+CREAM, CREAM_D = '#f4e7c8', '#d9c79a'
+BRASS, BRASS_D, BRASS_L = '#e3b84f', '#c9963a', '#f6dc8e'
+WOOD, WOOD_L, WOOD_D, WOOD_DD = '#b9905c', '#d1a56d', '#8a6238', '#5c4126'
+GRN, GRN_D = '#6b8e4e', '#4d6e38'
+DK = '#3b2a1a'
+
+
 def mailbox(flag_up):
-    """郵箱：兩側各有一塊鳥台給送信鳥站；有新回應時旗子舉起"""
-    s=Sprite(88,46); ox=24
-    for x0,x1 in((2,27),(60,85)):                                          # 鳥台（木板＋支架）
-        s.rect(x0,12,x1,15,'#b9905c'); s.rect(x0,16,x1,16,'#8a6238')
-        for x in range(x0+3,x1,6): s.px(x,13,'#a07a4a')
-    for i in range(6):
-        s.rect(27-i,17+i,28-i,17+i,'#8a6238'); s.rect(59+i,17+i,60+i,17+i,'#8a6238')
-    s.rect(ox+17,36,ox+22,43,'#8a6238'); s.rect(ox+13,43,ox+26,44,'#735736')   # 柱子與底座
-    s.rect(ox+7,12,ox+32,37,'#d9604c')                                     # 箱體
-    s.rect(ox+5,7,ox+34,12,'#b8473a'); s.rect(ox+8,4,ox+31,7,'#b8473a'); s.rect(ox+12,2,ox+27,4,'#b8473a')
-    s.rect(ox+12,17,ox+27,19,'#3b2a1a',True); s.rect(ox+12,16,ox+27,16,'#f08a78',True)
-    s.rect(ox+12,24,ox+27,33,'#c2503f',True); s.rect(ox+13,25,ox+26,32,'#cf5645',True)
-    s.px(ox+24,29,'#e3b84f'); s.px(ox+24,28,'#e3b84f')
+    s = MbSprite()
+
+    # ---- 左右鳥台（左邊畫，自動鏡射到右邊）：木板、托架、釘子、小葉子 ----
+    s.rect(3, 12, 29, 12, WOOD_L, flat=True, mirror=True)                 # 木板上緣的亮邊
+    s.rect(2, 13, 29, 14, WOOD, mirror=True)                              # 板面
+    s.rect(3, 15, 29, 15, WOOD_D, mirror=True)                            # 板的側面
+    s.rect(5, 16, 29, 16, WOOD_DD, flat=True, mirror=True)                # 底下的陰影
+    for x0, x1, y in ((6, 8, 13), (13, 17, 14), (21, 24, 13), (10, 11, 13), (26, 27, 14)):   # 木紋
+        s.rect(x0, y, x1, y, '#a07a4a', mirror=True)
+    for x in (4, 27):                                                     # 釘子
+        s.pxm(x, 13, WOOD_DD)
+    s.line(29, 31, 15, 17, WOOD_D, mirror=True)                           # 斜托架
+    s.line(29, 32, 16, 18, WOOD_D, mirror=True)
+    s.line(29, 33, 17, 19, WOOD_DD, mirror=True)
+    s.rect(28, 29, 30, 34, WOOD_D, mirror=True)                           # 托架接在郵筒的地方
+    s.pxm(29, 30, WOOD_DD)
+    s.pxm(29, 33, WOOD_DD)
+    # 鳥台外端垂下的小葉子
+    s.pxm(2, 12, GRN)
+    s.pxm(1, 11, GRN)
+    s.pxm(3, 11, GRN_D)
+    s.pxm(2, 10, GRN_D)
+    s.pxm(2, 16, GRN)
+    s.pxm(3, 17, GRN_D)
+
+    # ---- 柱子與底座 ----
+    s.rect(40, 38, 47, 43, WOOD)
+    s.rect(40, 38, 41, 43, WOOD_L)
+    s.rect(46, 38, 47, 43, WOOD_D)
+    s.rect(37, 43, 50, 44, WOOD_D)
+    s.rect(38, 44, 49, 44, WOOD_DD, flat=True)
+    for x, y in ((35, 44), (36, 43), (52, 43), (51, 44), (34, 44), (53, 44)):                 # 小草
+        s.px(x, y, GRN)
+    s.px(36, 42, GRN_D)
+    s.px(52, 42, GRN_D)
+    s.px(54, 43, GRN_D)
+
+    # ---- 郵筒本體 ----
+    s.rect(31, 13, 56, 37, RED)
+    s.rect(31, 13, 32, 36, RED_L)                                         # 左側受光
+    s.rect(52, 13, 56, 37, RED_D)                                         # 右側陰影
+    s.rect(53, 13, 53, 37, '#c2503f')
+    s.rect(31, 35, 56, 37, RED_D)                                         # 底部的飾條
+    s.rect(31, 34, 56, 34, CREAM)
+    s.rect(31, 33, 56, 33, RED_DD)
+
+    # 圓頂
+    s.ell(44, 12.5, 14.2, 8.6, RED_D, top_only=True)
+    s.ell(43, 12.5, 11.0, 6.2, RED, top_only=True)
+    s.ell(41.5, 12.5, 7.2, 3.8, RED_L, top_only=True)
+    s.rect(30, 12, 57, 13, CREAM, flat=True)                              # 飾邊（屋簷）
+    s.rect(30, 14, 57, 14, RED_DD, flat=True)
+    s.rect(30, 13, 57, 13, CREAM_D, flat=True)
+    s.rect(30, 12, 57, 12, CREAM, flat=True)
+    # 頂上的小圓球
+    s.rect(43, 1, 44, 3, BRASS)
+    s.px(43, 1, BRASS_L)
+
+    # 黃銅投信口
+    s.rect(35, 16, 52, 21, BRASS, flat=True)
+    s.rect(35, 16, 52, 16, BRASS_L, flat=True)
+    s.rect(35, 21, 52, 21, BRASS_D, flat=True)
+    s.rect(37, 18, 50, 19, DK, flat=True)
+    s.rect(37, 17, 50, 17, BRASS_D, flat=True)
+
+    # 門板：往內凹的一塊，右邊有黃銅門把
+    s.rect(35, 24, 52, 32, '#cf5645')
+    s.rect(35, 24, 52, 24, RED_DD)
+    s.rect(35, 24, 35, 32, RED_DD)
+    s.rect(36, 32, 52, 32, RED_L)
+    s.rect(52, 25, 52, 32, RED_L)
+    s.rect(49, 27, 50, 28, BRASS, flat=True)
+    s.px(49, 27, BRASS_L, flat=True)
+    s.px(50, 29, DK, flat=True)
+    # 門上的信封徽章
+    s.rect(38, 26, 46, 31, CREAM, flat=True)
+    s.rect(38, 26, 46, 26, CREAM_D, flat=True)
+    s.line(38, 26, 42, 29, CREAM_D)
+    s.line(46, 26, 42, 29, CREAM_D)
+    s.px(42, 29, RED, flat=True)
+
+    # ---- 旗子（郵筒右側）----
+    s.rect(57, 17, 58, 19, BRASS_D, flat=True)                            # 旗桿的轉軸
     if flag_up:
-        s.rect(ox+36,1,ox+37,9,'#8a6238'); s.rect(ox+38,1,ox+43,5,'#e3b84f'); s.px(ox+39,2,'#f4d98a')
+        s.rect(57, 5, 58, 18, WOOD_D, flat=True)                          # 舉起的旗桿
+        s.rect(57, 5, 57, 18, WOOD)
+        s.rect(59, 4, 66, 9, BRASS, flat=True)                            # 黃色旗面
+        s.rect(59, 4, 66, 4, BRASS_L, flat=True)
+        s.rect(59, 9, 66, 9, BRASS_D, flat=True)
+        s.g[6][66] = None                                                 # 旗面右端剪出燕尾缺口
+        s.g[7][66] = None
+        s.g[7][65] = None
     else:
-        s.rect(ox+33,22,ox+34,30,'#8a6238'); s.rect(ox+33,30,ox+38,34,'#c9963a')
+        s.rect(57, 19, 58, 24, WOOD_D, flat=True)                         # 垂下的旗桿
+        s.rect(57, 19, 57, 24, WOOD)
+        s.rect(57, 24, 61, 27, BRASS, flat=True)                          # 放下的旗面
+        s.rect(57, 24, 61, 24, BRASS_L, flat=True)
+        s.rect(57, 27, 61, 27, BRASS_D, flat=True)
     return s.render()
+
+
 def feed():
     s=Sprite(40,40)
     s.ell(20,22,17,14,'#9a6a3c'); s.ell(20,20,14,10.5,'#6e4a28',True)

@@ -47,6 +47,5 @@
 - 像素圖全部由 Python 腳本逐格繪製；音效用 Web Audio 即時合成，沒有音檔。
 - 資料存取集中在 `api.js`，統一回傳 Promise，失敗時 reject `{ code, message }`。
 
-## 團隊
-
-前端 1 人、後端 2 人。
+## 瀏覽網址
+https://jolopohe.github.io/By-bird-post-html/

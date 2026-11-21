@@ -37,8 +37,6 @@
 
 - [SPEC.md](SPEC.md)：定案規格與實作備註
 - [API-DRAFT.md](API-DRAFT.md)：**給後端的資料模型與 API 草案**（後端組員請先看這份）
-- [TODO.md](TODO.md)：待辦與優先順序
-- [DISCUSSION.md](DISCUSSION.md)：設計討論脈絡
 
 ## 技術特色
 
